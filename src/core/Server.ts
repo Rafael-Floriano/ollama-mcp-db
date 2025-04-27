@@ -1,19 +1,19 @@
-
-import express from 'express';
-import { OllamaMCPHost } from './OllamaMCPHost.js';
+import express, { Request, Response } from 'express';
+import QuestionService from '../cli/questionService.js';
 
 const app = express();
 app.use(express.json());
 
-const ollamaHost = new OllamaMCPHost();
+const questionService = new QuestionService();
 
-app.post('/ask', async (req, res) => {
+app.post('/ask', async (req: Request, res: Response) => {
   const { question } = req.body;
   try {
-    const response = await ollamaHost.processQuestion(question);
+    const response = await questionService.run(question);
     res.json({ response });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
+    res.status(500).json({ error: errorMessage });
   }
 });
 

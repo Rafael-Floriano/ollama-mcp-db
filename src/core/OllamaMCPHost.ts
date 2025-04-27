@@ -96,6 +96,7 @@ export class OllamaMCPHost {
 
           console.log(queryResult);
           attemptCount = this.MAX_RETRIES;
+          return queryResult;
         } catch (error) {
           const errorMessage =
             error instanceof Error ? error.message : String(error);
