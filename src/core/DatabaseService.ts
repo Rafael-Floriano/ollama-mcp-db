@@ -2,27 +2,44 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { databaseUrl } from "../utils/env.js";
-
-
+import { TableStructure } from "../types/index.js";
 export class DatabaseService {
   private client: Client;
-  private transport: StdioClientTransport;
+  private transport!: StdioClientTransport;
+  private currentDatabaseUrl: string;
 
   constructor() {
-    this.transport = new StdioClientTransport({
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-postgres", databaseUrl!],
-    });
-
+    this.currentDatabaseUrl = databaseUrl!;
+    this.initializeTransport();
     this.client = new Client(
       { name: "ollama-mcp-host", version: "1.0.0" },
       { capabilities: {} }
     );
   }
 
+  private initializeTransport() {
+    this.transport = new StdioClientTransport({
+      command: "npx",
+      args: ["-y", "@modelcontextprotocol/server-postgres", this.currentDatabaseUrl],
+    });
+  }
+
   async connect() {
     await this.client.connect(this.transport);
   }
+
+  async connectToDatabase(databaseUrl: string) {
+    // Fechando conexão se existente
+    await this.cleanup();
+    
+    // Muda a url para a base de dados especificada, e não para a do env
+    this.currentDatabaseUrl = databaseUrl;
+    
+    this.initializeTransport();
+    await this.connect();
+  }
+
+
 
   async execute(sql: string): Promise<string> {
     const response = await this.client.request(
@@ -40,6 +57,8 @@ export class DatabaseService {
   }
 
   async cleanup() {
-    await this.transport.close();
+    if (this.transport) {
+      await this.transport.close();
+    }
   }
 }
