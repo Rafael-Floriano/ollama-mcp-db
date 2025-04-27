@@ -20,7 +20,7 @@ export class PromptBuilder {
   Be as helpful and complete as possible.
   `;  
     
-    private readonly USER_CONTEXT = `
+    private readonly DATA_CONTEXT = `
     I have a database with the following tables:
     
     [
@@ -30,15 +30,18 @@ export class PromptBuilder {
       {"table_name": "venda", , "columns" ["id", "cliente_id", "produto_id", "quantidade", "total"]}
     ]
     
+    `;
+
+    private readonly USER_QUESTION = `
     I have a question:
-    
+
     `;
 
 
     build(question: string) {
       return [
         { role: "system", content: this.SYSTEM_PROMPT },
-        { role: "user", content: this.USER_CONTEXT + question }
+        { role: "user", content: this.DATA_CONTEXT + this.USER_QUESTION + question }
       ];
     }
   }
