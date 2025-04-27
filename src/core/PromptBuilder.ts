@@ -1,3 +1,7 @@
+import { DatabaseScanner } from "./DatabaseScanner.js";
+
+const databaseScanner = new DatabaseScanner();
+
 export class PromptBuilder {
   
   private readonly SYSTEM_PROMPT = `
@@ -20,25 +24,24 @@ export class PromptBuilder {
   Be as helpful and complete as possible.
   `;  
     
-    private readonly USER_CONTEXT = `
+    private readonly DATA_CONTEXT = `
     I have a database with the following tables:
-    
-    [
-      {"table_name": "cliente", , "columns" ["id", "nome", "email"]},
-      {"table_name": "endereco", "columns" ["id", "cliente_id", "rua", "cidade", "estado", "cep"]},
-      {"table_name": "produto", "columns" ["id", "nome", "preco"]},
-      {"table_name": "venda", , "columns" ["id", "cliente_id", "produto_id", "quantidade", "total"]}
-    ]
-    
-    I have a question:
     
     `;
 
+    private readonly USER_QUESTION = `
+    I have a question:
 
-    build(question: string) {
+    `;
+
+
+    async build(question: string) {
+      const dbStructure = await databaseScanner.getDatabaseStructure();
+      const formattedStructure = JSON.stringify(dbStructure, null, 2);
+      
       return [
         { role: "system", content: this.SYSTEM_PROMPT },
-        { role: "user", content: this.USER_CONTEXT + question }
+        { role: "user", content: this.DATA_CONTEXT + formattedStructure + this.USER_QUESTION + question }
       ];
     }
   }

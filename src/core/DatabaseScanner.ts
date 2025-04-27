@@ -9,13 +9,14 @@ export class DatabaseScanner {
     if (!databaseUrl) {
         throw new Error("Database URL is required");
     }
-
     await databaseService.connectToDatabase(databaseUrl);
-
-
   }
 
   async getDatabaseStructure(): Promise<TableStructure[]> {
+
+    // Connect to the default database specified in the env
+    await databaseService.connect();
+
     const query = `
       SELECT 
         t.table_name,

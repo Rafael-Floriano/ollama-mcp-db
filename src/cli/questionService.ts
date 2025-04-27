@@ -2,10 +2,8 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { OllamaMCPHost } from "../core/OllamaMCPHost.js";
 
-// Load environment variables from .env file
 dotenv.config();
 
-// Check for required environment variables
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error("Error: DATABASE_URL not found in environment or .env file");
@@ -23,19 +21,16 @@ export default class QuestionService {
     });
 
     try {
-      // If a custom database URL is provided, use it instead of the default one
       if (customDatabaseUrl) {
         await host.connectToDatabase(customDatabaseUrl);
       } else {
         await host.connect();
       }
-
       console.log(
         "\nConnected to database. You can now ask questions about your data."
       );
       console.log('Type "/exit" to quit.\n');
 
-      // If a question was provided (API mode), process it directly
       if (question) {
         const answer = await host.processQuestion(question);
         readline.close();
@@ -43,7 +38,6 @@ export default class QuestionService {
         return answer;
       }
 
-      // Otherwise, enter interactive mode
       const askQuestion = (prompt: string) =>
         new Promise<string>((resolve) => {
           readline.question(prompt, resolve);
