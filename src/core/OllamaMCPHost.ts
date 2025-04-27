@@ -5,6 +5,13 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { databaseUrl } from "../utils/env.js";
 import { PromptBuilder } from "./PromptBuilder.js";
 
+// Set the Ollama host from environment variable
+const ollamaHost = process.env.OLLAMA_HOST || "http://localhost:11434";
+if (ollamaHost !== "http://localhost:11434") {
+  // @ts-ignore - The ollama package doesn't have proper types for this
+  ollama.host = ollamaHost;
+}
+
 export class OllamaMCPHost {
   private client: Client;
   private transport: StdioClientTransport;
@@ -72,7 +79,7 @@ export class OllamaMCPHost {
         // Get response from Ollama
         const response = await ollama.chat({
           model: this.modelName,
-          messages: messages,
+          messages: messages
         });
         this.addToHistory("assistant", response.message.content);
 
