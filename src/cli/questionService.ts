@@ -15,7 +15,7 @@ if (!databaseUrl) {
 }
 
 export default class QuestionService {
-  async run(question?: string) {
+  async run(question?: string, customDatabaseUrl?: string) {
     const host = new OllamaMCPHost();
     const readline = (await import("readline")).default.createInterface({
       input: process.stdin,
@@ -23,7 +23,13 @@ export default class QuestionService {
     });
 
     try {
-      await host.connect();
+      // If a custom database URL is provided, use it instead of the default one
+      if (customDatabaseUrl) {
+        await host.connectToDatabase(customDatabaseUrl);
+      } else {
+        await host.connect();
+      }
+
       console.log(
         "\nConnected to database. You can now ask questions about your data."
       );
