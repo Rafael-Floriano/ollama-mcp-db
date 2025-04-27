@@ -1,3 +1,7 @@
+import { DatabaseScanner } from "./DatabaseScanner.js";
+
+const databaseScanner = new DatabaseScanner();
+
 export class PromptBuilder {
   
   private readonly SYSTEM_PROMPT = `
@@ -23,13 +27,6 @@ export class PromptBuilder {
     private readonly DATA_CONTEXT = `
     I have a database with the following tables:
     
-    [
-      {"table_name": "cliente", , "columns" ["id", "nome", "email"]},
-      {"table_name": "endereco", "columns" ["id", "cliente_id", "rua", "cidade", "estado", "cep"]},
-      {"table_name": "produto", "columns" ["id", "nome", "preco"]},
-      {"table_name": "venda", , "columns" ["id", "cliente_id", "produto_id", "quantidade", "total"]}
-    ]
-    
     `;
 
     private readonly USER_QUESTION = `
@@ -38,10 +35,13 @@ export class PromptBuilder {
     `;
 
 
-    build(question: string) {
+    async build(question: string) {
+      const dbStructure = await databaseScanner.getDatabaseStructure();
+      const formattedStructure = JSON.stringify(dbStructure, null, 2);
+      
       return [
         { role: "system", content: this.SYSTEM_PROMPT },
-        { role: "user", content: this.DATA_CONTEXT + this.USER_QUESTION + question }
+        { role: "user", content: this.DATA_CONTEXT + formattedStructure + this.USER_QUESTION + question }
       ];
     }
   }
