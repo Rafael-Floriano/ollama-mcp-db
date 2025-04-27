@@ -4,6 +4,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { databaseUrl } from "../utils/env.js";
 import { PromptBuilder } from "./PromptBuilder.js";
+import { DatabaseService } from "./DatabaseService.js";
 
 // Set the Ollama host from environment variable
 const ollamaHost = process.env.OLLAMA_HOST || "http://localhost:11434";
@@ -19,10 +20,12 @@ export class OllamaMCPHost {
   private chatHistory: { role: string; content: string }[] = [];
   private readonly MAX_HISTORY_LENGTH = 20;
   private readonly MAX_RETRIES = 5;
+  private databaseService: DatabaseService;
 
   constructor(modelName?: string) {
     this.modelName =
       modelName || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b-instruct";
+    this.databaseService = new DatabaseService();
     this.transport = new StdioClientTransport({
       command: "npx",
       args: ["-y", "@modelcontextprotocol/server-postgres", databaseUrl!],
@@ -34,30 +37,20 @@ export class OllamaMCPHost {
   }
 
   async connect() {
-    await this.client.connect(this.transport);
+    await this.databaseService.connect();
+  }
+
+  async connectToDatabase(databaseUrl: string) {
+    await this.databaseService.connectToDatabase(databaseUrl);
   }
 
   private async executeQuery(sql: string): Promise<string> {
-    const response = await this.client.request(
-      {
-        method: "tools/call",
-        params: {
-          name: "query",
-          arguments: { sql },
-        },
-      },
-      CallToolResultSchema
-    );
-
-    if (!response.content?.[0]?.text) {
-      throw new Error("No text content received from query");
-    }
-    return response.content[0].text as string;
+    return await this.databaseService.execute(sql);
   }
 
   private addToHistory(role: string, content: string) {
     this.chatHistory.push({ role, content });
-    while (this.chatHistory.length > this.MAX_HISTORY_LENGTH) {
+    if (this.chatHistory.length > this.MAX_HISTORY_LENGTH) {
       this.chatHistory.shift();
     }
   }
@@ -69,7 +62,6 @@ export class OllamaMCPHost {
       const promptBuilder = new PromptBuilder();
 
       while (attemptCount <= this.MAX_RETRIES) {
-        // ...this.chatHistory
         const messages = promptBuilder.build(question);
 
         console.log(
@@ -128,6 +120,6 @@ export class OllamaMCPHost {
   }
 
   async cleanup() {
-    await this.transport.close();
+    await this.databaseService.cleanup();
   }
 }
