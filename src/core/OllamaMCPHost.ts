@@ -62,7 +62,7 @@ export class OllamaMCPHost {
       const promptBuilder = new PromptBuilder();
 
       while (attemptCount <= this.MAX_RETRIES) {
-        const messages = promptBuilder.build(question);
+        const messages = await promptBuilder.build(question);
 
         console.log(
           attemptCount > 0 ? `\nRetry attempt ${attemptCount}...` : ""
@@ -73,6 +73,10 @@ export class OllamaMCPHost {
           model: this.modelName,
           messages: messages
         });
+
+        console.log("\n COMPLETED PROMPT: ", messages);
+        console.log("\n LLM response: ", response);
+
         this.addToHistory("assistant", response.message.content);
 
         // Extract SQL query
@@ -84,6 +88,8 @@ export class OllamaMCPHost {
         }
 
         const sql = sqlMatch[1].trim();
+
+        console.log("\n SQL QUERY: ", sql);
 
         try {
           // Execute the query
