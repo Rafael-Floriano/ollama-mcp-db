@@ -3,10 +3,12 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { databaseUrl } from "../utils/env.js";
 import { TableStructure } from "../types/index.js";
+
 export class DatabaseService {
   private client: Client;
   private transport!: StdioClientTransport;
   private currentDatabaseUrl: string;
+  private isConnected: boolean = false;
 
   constructor() {
     this.currentDatabaseUrl = databaseUrl!;
@@ -25,7 +27,12 @@ export class DatabaseService {
   }
 
   async connect() {
+    if (this.isConnected) {
+      return;
+    }
+
     await this.client.connect(this.transport);
+    this.isConnected = true;
   }
 
   async connectToDatabase(databaseUrl: string) {
@@ -39,9 +46,11 @@ export class DatabaseService {
     await this.connect();
   }
 
-
-
   async execute(sql: string): Promise<string> {
+    if (!this.isConnected) {
+      await this.connect();
+    }
+
     const response = await this.client.request(
       {
         method: "tools/call",
@@ -59,6 +68,7 @@ export class DatabaseService {
   async cleanup() {
     if (this.transport) {
       await this.transport.close();
+      this.isConnected = false;
     }
   }
 }
