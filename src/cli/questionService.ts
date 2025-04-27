@@ -31,7 +31,6 @@ export default class QuestionService {
       );
       console.log('Type "/exit" to quit.\n');
 
-      // If a question was provided (API mode), process it directly
       if (question) {
         const answer = await host.processQuestion(question);
         readline.close();
@@ -39,7 +38,6 @@ export default class QuestionService {
         return answer;
       }
 
-      // Otherwise, enter interactive mode
       const askQuestion = (prompt: string) =>
         new Promise<string>((resolve) => {
           readline.question(prompt, resolve);
