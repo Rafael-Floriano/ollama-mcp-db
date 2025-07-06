@@ -24,7 +24,7 @@ export class OllamaMCPHost {
 
   constructor(modelName?: string) {
     this.modelName =
-      modelName || process.env.OLLAMA_MODEL || "qwen2.5-coder:7b-instruct";
+      modelName || process.env.OLLAMA_MODEL || "llama3.2:latest";
     this.databaseService = new DatabaseService();
     this.transport = new StdioClientTransport({
       command: "npx",
