@@ -62,7 +62,8 @@ export class DatabaseService {
       CallToolResultSchema
     );
 
-    return response.content?.[0]?.text || "No result";
+    const result = response.content?.[0]?.text;
+    return typeof result === 'string' ? result : "No result";
   }
 
   async cleanup() {

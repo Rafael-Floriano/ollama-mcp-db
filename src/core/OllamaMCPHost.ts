@@ -5,27 +5,30 @@ import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
 import { databaseUrl } from "../utils/env.js";
 import { PromptBuilder } from "./PromptBuilder.js";
 import { DatabaseService } from "./DatabaseService.js";
+import { getConfig } from "./Config.js";
+import { Logger } from "../utils/Logger.js";
 
-// Set the Ollama host from environment variable
-const ollamaHost = process.env.OLLAMA_HOST || "http://localhost:11434";
-if (ollamaHost !== "http://localhost:11434") {
+// Set the Ollama host from configuration
+const config = getConfig();
+if (config.host !== "http://localhost:11434") {
   // @ts-ignore - The ollama package doesn't have proper types for this
-  ollama.host = ollamaHost;
+  ollama.host = config.host;
 }
 
 export class OllamaMCPHost {
   private client: Client;
   private transport: StdioClientTransport;
   private modelName: string;
-  private chatHistory: { role: string; content: string }[] = [];
-  private readonly MAX_HISTORY_LENGTH = 20;
-  private readonly MAX_RETRIES = 5;
   private databaseService: DatabaseService;
+  private logger: Logger;
+  
+  // Configuração otimizada para performance
+  private readonly config = getConfig();
 
   constructor(modelName?: string) {
-    this.modelName =
-      modelName || process.env.OLLAMA_MODEL || "llama3.2:latest";
+    this.modelName = modelName || config.model;
     this.databaseService = new DatabaseService();
+    this.logger = Logger.getInstance();
     this.transport = new StdioClientTransport({
       command: "npx",
       args: ["-y", "@modelcontextprotocol/server-postgres", databaseUrl!],
@@ -37,95 +40,193 @@ export class OllamaMCPHost {
   }
 
   async connect() {
+    const startTime = Date.now();
     await this.databaseService.connect();
+    this.logger.logPerformance('Database connection', Date.now() - startTime);
   }
 
   async connectToDatabase(databaseUrl: string) {
+    const startTime = Date.now();
     await this.databaseService.connectToDatabase(databaseUrl);
+    this.logger.logPerformance('Database connection', Date.now() - startTime);
   }
 
   private async executeQuery(sql: string): Promise<string> {
-    return await this.databaseService.execute(sql);
+    const startTime = Date.now();
+    const result = await this.databaseService.execute(sql);
+    const duration = Date.now() - startTime;
+    this.logger.logPerformance('SQL execution', duration, { sql });
+    return result;
   }
 
-  private addToHistory(role: string, content: string) {
-    this.chatHistory.push({ role, content });
-    if (this.chatHistory.length > this.MAX_HISTORY_LENGTH) {
-      this.chatHistory.shift();
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private validateLLMResponse(response: string): { isValid: boolean; sql?: string; error?: string } {
+    // Verificar se a resposta está vazia
+    if (!response || response.trim().length === 0) {
+      return { isValid: false, error: "Empty response from LLM" };
     }
+
+    // Verificar se contém SQL
+    const sqlMatch = response.match(/```sql\n([\s\S]*?)\n```/);
+    if (!sqlMatch) {
+      return { isValid: false, error: "No SQL query found in response" };
+    }
+
+    const sql = sqlMatch[1].trim();
+    
+    // Verificar se o SQL não está vazio
+    if (!sql || sql.length === 0) {
+      return { isValid: false, error: "Empty SQL query extracted" };
+    }
+
+    // Verificar se é um SELECT válido (básico)
+    if (!sql.toLowerCase().includes('select')) {
+      return { isValid: false, error: "Query is not a SELECT statement" };
+    }
+
+    return { isValid: true, sql };
   }
 
   async processQuestion(question: string): Promise<string> {
+    const totalStartTime = Date.now();
+    this.logger.info('ENDPOINT', 'Processing new question', { question });
+
     try {
       let attemptCount = 0;
-
       const promptBuilder = new PromptBuilder();
 
-      while (attemptCount <= this.MAX_RETRIES) {
-        const messages = await promptBuilder.build(question);
-
-        console.log(
-          attemptCount > 0 ? `\nRetry attempt ${attemptCount}...` : ""
-        );
-
-        // Get response from Ollama
-        const response = await ollama.chat({
-          model: this.modelName,
-          messages: messages
-        });
-
-        console.log("\n COMPLETED PROMPT: ", messages);
-        console.log("\n LLM response: ", response);
-
-        this.addToHistory("assistant", response.message.content);
-
-        // Extract SQL query
-        const sqlMatch = response.message.content.match(
-          /```sql\n([\s\S]*?)\n```/
-        );
-        if (!sqlMatch) {
-          return response.message.content;
+      while (attemptCount <= this.config.retry.max_attempts) {
+        const attemptStartTime = Date.now();
+        
+        if (attemptCount > 0) {
+          this.logger.warn('RETRY', `Retry attempt ${attemptCount}`, { 
+            question, 
+            previousAttempts: attemptCount 
+          });
+          await this.delay(this.config.retry.delays[attemptCount - 1]);
         }
 
-        const sql = sqlMatch[1].trim();
+        // Build prompt
+        const promptStartTime = Date.now();
+        const messages = await promptBuilder.build(question);
+        this.logger.logPerformance('Prompt building', Date.now() - promptStartTime, {
+          question,
+          promptTokens: JSON.stringify(messages).length
+        });
 
-        console.log("\n SQL QUERY: ", sql);
+        // Get response from Ollama with optimized parameters
+        const llmStartTime = Date.now();
+        let response;
+        try {
+          response = await ollama.chat({
+            model: this.modelName,
+            messages: messages,
+            options: this.config.inference
+          });
+        } catch (ollamaError) {
+          this.logger.error('OLLAMA_ERROR', 'Failed to get response from Ollama', {
+            error: ollamaError instanceof Error ? ollamaError.message : String(ollamaError),
+            attempt: attemptCount + 1
+          });
+          
+          if (attemptCount === this.config.retry.max_attempts) {
+            throw new Error(`Ollama connection failed after ${this.config.retry.max_attempts + 1} attempts`);
+          }
+          attemptCount++;
+          continue;
+        }
+        
+        const llmDuration = Date.now() - llmStartTime;
+
+        this.logger.logLLMResponse(this.modelName, messages, response.message.content, llmDuration);
+
+        // Validar resposta do LLM
+        const validation = this.validateLLMResponse(response.message.content);
+        if (!validation.isValid) {
+          this.logger.warn('LLM_VALIDATION', `Invalid LLM response on attempt ${attemptCount + 1}`, {
+            error: validation.error,
+            response: response.message.content.substring(0, 200)
+          });
+          
+          if (attemptCount === this.config.retry.max_attempts) {
+            return `❌ Failed to generate valid SQL query after ${this.config.retry.max_attempts + 1} attempts. Last error: ${validation.error}`;
+          }
+          attemptCount++;
+          continue;
+        }
+
+        const sql = validation.sql!;
+        this.logger.debug('SQL_EXTRACTION', 'SQL query extracted and validated', { sql });
 
         try {
           // Execute the query
           const queryResult = await this.executeQuery(sql);
-          this.addToHistory(
-            "user",
-            `Here are the results of the SQL query: ${queryResult}`
-          );
-
-          console.log(queryResult);
-          attemptCount = this.MAX_RETRIES;
+          const totalDuration = Date.now() - totalStartTime;
+          
+          this.logger.logQuery(question, sql, queryResult, totalDuration);
+          this.logger.logPerformance('Total processing', totalDuration, {
+            question,
+            sql,
+            resultLength: queryResult.length,
+            attempts: attemptCount + 1
+          });
+          
           return queryResult;
         } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.addToHistory("user", errorMessage);
-          if (attemptCount === this.MAX_RETRIES) {
-            return `I apologize, but I was unable to successfully query the database after ${
-              this.MAX_RETRIES + 1
-            } attempts. The last error was: ${errorMessage}`;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.logQueryError(question, sql, errorMessage, attemptCount + 1);
+          
+          if (attemptCount === this.config.retry.max_attempts) {
+            const totalDuration = Date.now() - totalStartTime;
+            this.logger.error('ENDPOINT', 'Max retries exceeded', {
+              question,
+              totalAttempts: this.config.retry.max_attempts + 1,
+              lastError: errorMessage,
+              totalDuration
+            });
+            return `❌ Unable to execute query after ${this.config.retry.max_attempts + 1} attempts. Last error: ${errorMessage}`;
           }
         }
 
         attemptCount++;
       }
 
-      return "An unexpected error occurred while processing your question.";
+      const totalDuration = Date.now() - totalStartTime;
+      this.logger.error('ENDPOINT', 'Unexpected error in processing loop', {
+        question,
+        totalDuration
+      });
+      return "❌ An unexpected error occurred while processing your question.";
     } catch (error) {
-      console.error("Error processing question:", error);
-      return `An error occurred: ${
-        error instanceof Error ? error.message : String(error)
-      }`;
+      const totalDuration = Date.now() - totalStartTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      this.logger.error('ENDPOINT', 'Critical error in processQuestion', {
+        question,
+        error: errorMessage,
+        totalDuration
+      });
+      
+      return `💥 An error occurred: ${errorMessage}`;
     }
   }
 
   async cleanup() {
+    const startTime = Date.now();
     await this.databaseService.cleanup();
+    this.logger.logPerformance('Cleanup', Date.now() - startTime);
+  }
+
+  // Método para obter logs
+  getLogs() {
+    return this.logger.getLogs();
+  }
+
+  // Método para exportar logs
+  exportLogs() {
+    return this.logger.exportLogs();
   }
 }
